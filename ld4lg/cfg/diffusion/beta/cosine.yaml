@@ -1,0 +1,3 @@
+schedule: cosine
+s: 0.008
+max_beta: 0.999

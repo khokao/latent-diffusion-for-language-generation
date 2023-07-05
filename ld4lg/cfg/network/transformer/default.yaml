@@ -1,0 +1,12 @@
+x_dim: 768
+seq_len: 64
+hidden_dim: 768
+head_dim: 64
+heads: 12
+depth: 12
+layer_block: [a, c, f]
+attn_dropout: 0.1
+ff_dropout: 0.1
+use_self_condition: True
+use_class_condition: ${dataset.use_class_condition}
+num_classes: ${dataset.num_classes}

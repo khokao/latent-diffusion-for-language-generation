@@ -1,0 +1,10 @@
+defaults:
+  - beta: linear
+  - _self_
+
+
+timesteps: 1000
+objective: pred_x0
+loss_type: l1
+self_condition_prob: 0.5
+class_uncondition_prob: 0.1

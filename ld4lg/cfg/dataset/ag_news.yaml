@@ -1,0 +1,3 @@
+name: ag_news
+use_class_condition: True
+num_classes: 4

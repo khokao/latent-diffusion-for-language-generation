@@ -1,0 +1,2 @@
+name: cosine
+num_warmup_steps: 1000

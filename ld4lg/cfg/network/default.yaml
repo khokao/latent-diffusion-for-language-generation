@@ -1,0 +1,5 @@
+defaults:
+  - transformer: default
+
+autoencoder:
+  name: facebook/bart-base
