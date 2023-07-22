@@ -5,7 +5,7 @@ description = "ld4lg"
 authors = ["Koki Hokao"]
 
 [tool.poetry.dependencies]
-python = ">=3.9,<3.10"
+python = ">=3.10,<3.11"
 accelerate = "*"
 datasets = "*"
 einops = "*"
