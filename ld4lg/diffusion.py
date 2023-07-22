@@ -21,17 +21,19 @@ class DiffusionModel(nn.Module):
         self_condition_prob,
         class_uncondition_prob,
         num_classes,
+        length_distribution,
     ):
         super().__init__()
         self.transformer = transformer
         self.autoencoder = autoencoder
-        self.timesteps = timesteps
         self.seq_len = seq_len
         self.x_dim = x_dim
+        self.timesteps = timesteps
         self.objective = objective
-        self.num_classes = num_classes
         self.self_condition_prob = self_condition_prob
         self.class_unconditional_bernoulli = torch.distributions.Bernoulli(probs=class_uncondition_prob)
+        self.num_classes = num_classes
+        self.length_distribution = length_distribution
 
         if loss_type == 'l1':
             self.criterion = torch.nn.L1Loss()
@@ -234,8 +236,10 @@ class DiffusionModel(nn.Module):
         return output
 
     @torch.inference_mode()
-    def sample(self, num_samples, lengths, class_id=None, sampling_steps=250):
+    def sample(self, num_samples, class_id=None, sampling_steps=250):
+        lengths = self.length_distribution.sample((num_samples,)).tolist()
         latent, x_mask = self.sample_ddim(num_samples, lengths, class_id, sampling_steps)
+        output_ids = self.sample_decode(latent, x_mask, generate_kwargs)
         pass
 
     @torch.inference_mode()

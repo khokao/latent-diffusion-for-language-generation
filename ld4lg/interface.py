@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import torch
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import ProjectConfiguration
@@ -11,7 +12,7 @@ from .dataset import get_dataset
 from .diffusion import DiffusionModel
 from .models import DiffusionTransformer
 from .trainer import Trainer
-from .utils import freeze_model
+from .utils import freeze_model, get_length_distribution
 
 logger = get_logger(__name__)
 
@@ -24,8 +25,8 @@ class LD4LGInterface:
         self.mode = mode
 
         self._init_accelerator()
-        self._init_model(ckpt_path)
         self._init_dataset()
+        self._init_model(length_distribution=self.train_length_distribution, ckpt_path=ckpt_path)
 
     def _init_accelerator(self):
         project_config = ProjectConfiguration(
@@ -42,7 +43,7 @@ class LD4LGInterface:
 
         self.accelerator = accelerator
 
-    def _init_model(self, ckpt_path=None):
+    def _init_model(self, length_distribution, ckpt_path=None):
         logger.info('Initializing AutoEncoder...')
         name = self.cfg.network.autoencoder.name
         tokenizer = AutoTokenizer.from_pretrained(name)
@@ -65,10 +66,11 @@ class LD4LGInterface:
             self_condition_prob=self.cfg.diffusion.self_condition_prob,
             class_uncondition_prob=self.cfg.diffusion.class_uncondition_prob,
             num_classes=self.cfg.dataset.num_classes,
+            length_distribution=length_distribution,
         )
         if ckpt_path is not None:
             logger.info(f'Loading checkpoint from {ckpt_path}')
-            raise AssertionError('Not implemented yet')
+            model.load_state_dict(torch.load(ckpt_path))
 
         self.tokenizer = tokenizer
         self.model = model
@@ -95,6 +97,11 @@ class LD4LGInterface:
         self.val_dataset = dataset['val']
         self.test_dataset = dataset['test']
 
+        self.train_length_distribution = get_length_distribution(
+            dataset=self.train_dataset,
+            max_seq_len=self.cfg.network.transformer.seq_len,
+        )
+
     def train(self):
         """Training.
         """
@@ -109,3 +116,8 @@ class LD4LGInterface:
         trainer.train()
 
         self.accelerator.end_training()
+
+    def test(self):
+        """Testing.
+        """
+        raise NotImplementedError
