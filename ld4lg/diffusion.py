@@ -5,6 +5,11 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 from transformers.modeling_outputs import BaseModelOutput
+from accelerate.logging import get_logger
+
+from collections import defaultdict
+
+logger = get_logger(__name__)
 
 
 class DiffusionModel(nn.Module):
@@ -22,6 +27,7 @@ class DiffusionModel(nn.Module):
         class_uncondition_prob,
         num_classes,
         length_distribution,
+        tokenizer,
     ):
         super().__init__()
         self.transformer = transformer
@@ -34,6 +40,7 @@ class DiffusionModel(nn.Module):
         self.class_unconditional_bernoulli = torch.distributions.Bernoulli(probs=class_uncondition_prob)
         self.num_classes = num_classes
         self.length_distribution = length_distribution
+        self.tokenizer = tokenizer
 
         if loss_type == 'l1':
             self.criterion = torch.nn.L1Loss()
@@ -236,21 +243,36 @@ class DiffusionModel(nn.Module):
         return output
 
     @torch.inference_mode()
-    def sample(self, num_samples, class_id=None, sampling_steps=250):
-        lengths = self.length_distribution.sample((num_samples,)).tolist()
-        latent, x_mask = self.sample_ddim(num_samples, lengths, class_id, sampling_steps)
-        output_ids = self.sample_decode(latent, x_mask, generate_kwargs)
-        pass
+    def sample(self, num_samples=25, batch_size=32, class_id=None, sampling_steps=250, strategy=None, eta=0.0):
+        if strategy is None:
+            logger.warning('No strategy provided, using greedy strategy WITH DEFAULT PARAMS')
+            strategy = {'greedy': {}}
+
+        outputs = defaultdict(list)
+        num_sampled = 0
+        while num_sampled < num_samples:
+            latent, x_mask = self.sample_ddim(batch_size, class_id, sampling_steps, eta)
+
+            for strategy_name, strategy_kwargs in strategy.items():
+                output_texts = self.sample_decode(self.tokenizer, latent, x_mask, strategy_kwargs)
+                outputs[strategy_name].extend(output_texts)
+
+            num_sampled += batch_size
+        outputs = dict(outputs)
+
+        return outputs
 
     @torch.inference_mode()
-    def sample_ddim(self, num_samples, lengths, class_id=None, sampling_steps=250, eta=0.0):
+    def sample_ddim(self, batch_size=32, class_id=None, sampling_steps=250, eta=0.0):
+        lengths = self.length_distribution.sample((batch_size,)).tolist()
+
         t = torch.linspace(-1, self.timesteps - 1, steps=sampling_steps + 1)
         t = list(reversed(t.int().tolist()))
         t_pairs = list(zip(t[:-1], t[1:]))
 
         device = self.betas.device
         latent = torch.randn(
-            (num_samples, self.seq_len, self.x_dim),
+            (batch_size, self.seq_len, self.x_dim),
             device=device,
         )
         x_mask = torch.tensor(
@@ -261,7 +283,7 @@ class DiffusionModel(nn.Module):
 
         x_self_cond = None
         for t_prev, t_next in tqdm(t_pairs, desc='denoising...'):
-            t_cond = torch.full((num_samples,), t_prev, device=device, dtype=torch.long)
+            t_cond = torch.full((batch_size,), t_prev, device=device, dtype=torch.long)
 
             preds = self.get_diffusion_model_preds(
                 xt=latent,
@@ -293,11 +315,19 @@ class DiffusionModel(nn.Module):
         return latent, x_mask
 
     @torch.inference_mode()
-    def sample_decode(self, latent, x_mask, generate_kwargs):
+    def sample_decode(self, latent, x_mask, strategy_kwargs):
         encoder_outputs = BaseModelOutput(last_hidden_state=latent.clone())
+
         output_ids = self.autoencoder.generate(
             encoder_outputs=encoder_outputs,
             attention_mask=x_mask.clone(),
-            **generate_kwargs,
+            **strategy_kwargs,
         )
-        return output_ids
+
+        output_texts = [
+            self.tokenizer.decode(seq, skip_special_tokens=True, clean_up_tokenization_spaces=True)
+            for seq in output_ids
+        ]
+        output_texts = [text.strip() for text in output_texts]
+
+        return output_texts

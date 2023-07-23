@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 import torch
 from accelerate import Accelerator
@@ -24,9 +25,13 @@ class LD4LGInterface:
         self.output_dir = Path(output_dir)
         self.mode = mode
 
+        pretrain_name = self.cfg.network.autoencoder.name
+        self.tokenizer = AutoTokenizer.from_pretrained(pretrain_name)
+
         self._init_accelerator()
         self._init_dataset()
-        self._init_model(length_distribution=self.train_length_distribution, ckpt_path=ckpt_path)
+        self._init_distribution()
+        self._init_model(pretrain_name, ckpt_path=ckpt_path)
 
     def _init_accelerator(self):
         project_config = ProjectConfiguration(
@@ -42,38 +47,6 @@ class LD4LGInterface:
         logger.info(f'\nAcceleratorState: {vars(accelerator.state)}')
 
         self.accelerator = accelerator
-
-    def _init_model(self, length_distribution, ckpt_path=None):
-        logger.info('Initializing AutoEncoder...')
-        name = self.cfg.network.autoencoder.name
-        tokenizer = AutoTokenizer.from_pretrained(name)
-        autoencoder = BartForConditionalGeneration.from_pretrained(name)
-        autoencoder = freeze_model(autoencoder)
-
-        logger.info('Initializing Transformer...')
-        transformer = DiffusionTransformer(**self.cfg.network.transformer)
-
-        logger.info('Initializing Diffusion Model...')
-        model = DiffusionModel(
-            transformer=transformer,
-            autoencoder=autoencoder,
-            seq_len=self.cfg.network.transformer.seq_len,
-            x_dim=self.cfg.network.transformer.x_dim,
-            timesteps=self.cfg.diffusion.timesteps,
-            beta_schedule=self.cfg.diffusion.beta.schedule,
-            objective=self.cfg.diffusion.objective,
-            loss_type=self.cfg.diffusion.loss_type,
-            self_condition_prob=self.cfg.diffusion.self_condition_prob,
-            class_uncondition_prob=self.cfg.diffusion.class_uncondition_prob,
-            num_classes=self.cfg.dataset.num_classes,
-            length_distribution=length_distribution,
-        )
-        if ckpt_path is not None:
-            logger.info(f'Loading checkpoint from {ckpt_path}')
-            model.load_state_dict(torch.load(ckpt_path))
-
-        self.tokenizer = tokenizer
-        self.model = model
 
     def _init_dataset(self):
         logger.info(f'Initializing `{self.cfg.dataset.name}` dataset...')
@@ -97,10 +70,44 @@ class LD4LGInterface:
         self.val_dataset = dataset['val']
         self.test_dataset = dataset['test']
 
-        self.train_length_distribution = get_length_distribution(
+    def _init_distribution(self):
+        self.length_distribution = get_length_distribution(
             dataset=self.train_dataset,
             max_seq_len=self.cfg.network.transformer.seq_len,
         )
+        self.class_distribution = None  # TODO
+
+    def _init_model(self, pretrain_name, ckpt_path=None):
+        logger.info('Initializing AutoEncoder...')
+        autoencoder = BartForConditionalGeneration.from_pretrained(pretrain_name)
+        autoencoder = freeze_model(autoencoder)
+
+        logger.info('Initializing Transformer...')
+        transformer = DiffusionTransformer(**self.cfg.network.transformer)
+
+        logger.info('Initializing Diffusion Model...')
+        model = DiffusionModel(
+            transformer=transformer,
+            autoencoder=autoencoder,
+            seq_len=self.cfg.network.transformer.seq_len,
+            x_dim=self.cfg.network.transformer.x_dim,
+            timesteps=self.cfg.diffusion.timesteps,
+            beta_schedule=self.cfg.diffusion.beta.schedule,
+            objective=self.cfg.diffusion.objective,
+            loss_type=self.cfg.diffusion.loss_type,
+            self_condition_prob=self.cfg.diffusion.self_condition_prob,
+            class_uncondition_prob=self.cfg.diffusion.class_uncondition_prob,
+            num_classes=self.cfg.dataset.num_classes,
+            length_distribution=self.length_distribution,
+            tokenizer=self.tokenizer,
+        )
+        if ckpt_path is not None:
+            logger.info(f'Loading checkpoint from {ckpt_path}')
+            model.load_state_dict(torch.load(ckpt_path))
+
+        self.model = model
+
+
 
     def train(self):
         """Training.
@@ -121,3 +128,19 @@ class LD4LGInterface:
         """Testing.
         """
         raise NotImplementedError
+
+    def infer(self):
+        """Inference.
+        """
+        outputs = self.model.sample(
+            num_samples=self.cfg.generation.num_samples,
+            batch_size=self.cfg.generation.batch_size,
+            class_id=self.cfg.generation.class_id,
+            sampling_steps=self.cfg.generation.sampling_steps,
+            strategy=self.cfg.generation.strategy,
+            eta=self.cfg.generation.eta,
+        )
+
+        output_path = self.output_dir / 'infer_outputs.json'
+        with output_path.open('w') as fp:
+            json.dump(outputs, fp, indent=4)
