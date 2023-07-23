@@ -2,9 +2,15 @@ defaults:
   - hydra: custom
   - dataset: ag_news
   - diffusion: default
+  - generation: default
   - network: default
   - train: default
   - _self_
 
 general:
   seed: 42
+
+infer:
+  output_dir: null
+  ckpt_path: checkpoints/pytorch_model_1.bin
+  cfg_path: .hydra/config.yaml
