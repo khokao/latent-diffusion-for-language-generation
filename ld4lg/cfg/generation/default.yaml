@@ -1,6 +1,7 @@
 num_samples: 25
 batch_size: 36
 class_id: null
+use_class_sampling: False
 sampling_steps: 250
 eta: 0.0
 strategy:
