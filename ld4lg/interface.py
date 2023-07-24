@@ -1,5 +1,7 @@
-from pathlib import Path
 import json
+import os
+import sys
+from pathlib import Path
 
 import torch
 from accelerate import Accelerator
@@ -13,7 +15,7 @@ from .dataset import get_dataset
 from .diffusion import DiffusionModel
 from .models import DiffusionTransformer
 from .trainer import Trainer
-from .utils import freeze_model, get_length_distribution
+from .utils import freeze_model, get_class_distribution, get_length_distribution
 
 logger = get_logger(__name__)
 
@@ -45,6 +47,7 @@ class LD4LGInterface:
             accelerator = Accelerator(log_with=None, project_config=project_config)
 
         logger.info(f'\nAcceleratorState: {vars(accelerator.state)}')
+        logger.info(f'Command: {" ".join([os.getenv("_"), " ".join(sys.argv)])}')
 
         self.accelerator = accelerator
 
@@ -75,7 +78,10 @@ class LD4LGInterface:
             dataset=self.train_dataset,
             max_seq_len=self.cfg.network.transformer.seq_len,
         )
-        self.class_distribution = None  # TODO
+
+        self.class_distribution = None
+        if self.cfg.dataset.use_class_condition:
+            self.class_distribution = get_class_distribution(dataset=self.train_dataset)
 
     def _init_model(self, pretrain_name, ckpt_path=None):
         logger.info('Initializing AutoEncoder...')
@@ -99,6 +105,7 @@ class LD4LGInterface:
             class_uncondition_prob=self.cfg.diffusion.class_uncondition_prob,
             num_classes=self.cfg.dataset.num_classes,
             length_distribution=self.length_distribution,
+            class_distribution=self.class_distribution,
             tokenizer=self.tokenizer,
         )
         if ckpt_path is not None:
@@ -106,8 +113,6 @@ class LD4LGInterface:
             model.load_state_dict(torch.load(ckpt_path))
 
         self.model = model
-
-
 
     def train(self):
         """Training.
@@ -136,6 +141,7 @@ class LD4LGInterface:
             num_samples=self.cfg.generation.num_samples,
             batch_size=self.cfg.generation.batch_size,
             class_id=self.cfg.generation.class_id,
+            use_class_sampling=self.cfg.generation.use_class_sampling,
             sampling_steps=self.cfg.generation.sampling_steps,
             strategy=self.cfg.generation.strategy,
             eta=self.cfg.generation.eta,
@@ -143,4 +149,4 @@ class LD4LGInterface:
 
         output_path = self.output_dir / 'infer_outputs.json'
         with output_path.open('w') as fp:
-            json.dump(outputs, fp, indent=4)
+            json.dump(outputs, fp, indent=4, ensure_ascii=False)

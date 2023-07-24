@@ -11,7 +11,6 @@ import torch
 from accelerate.logging import get_logger
 from accelerate.utils import set_seed
 from ema_pytorch import EMA
-from omegaconf import OmegaConf
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import get_scheduler

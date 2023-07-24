@@ -1,13 +1,12 @@
 import math
 import random
+from collections import defaultdict
 
 import torch
 import torch.nn as nn
+from accelerate.logging import get_logger
 from tqdm import tqdm
 from transformers.modeling_outputs import BaseModelOutput
-from accelerate.logging import get_logger
-
-from collections import defaultdict
 
 logger = get_logger(__name__)
 
@@ -27,6 +26,7 @@ class DiffusionModel(nn.Module):
         class_uncondition_prob,
         num_classes,
         length_distribution,
+        class_distribution,
         tokenizer,
     ):
         super().__init__()
@@ -40,6 +40,7 @@ class DiffusionModel(nn.Module):
         self.class_unconditional_bernoulli = torch.distributions.Bernoulli(probs=class_uncondition_prob)
         self.num_classes = num_classes
         self.length_distribution = length_distribution
+        self.class_distribution = class_distribution
         self.tokenizer = tokenizer
 
         if loss_type == 'l1':
@@ -243,34 +244,61 @@ class DiffusionModel(nn.Module):
         return output
 
     @torch.inference_mode()
-    def sample(self, num_samples=25, batch_size=32, class_id=None, sampling_steps=250, strategy=None, eta=0.0):
+    def sample(
+        self,
+        num_samples=25,
+        batch_size=32,
+        class_id=None,
+        use_class_sampling=False,
+        sampling_steps=250,
+        strategy=None,
+        eta=0.0
+    ):
         if strategy is None:
             logger.warning('No strategy provided, using greedy strategy WITH DEFAULT PARAMS')
             strategy = {'greedy': {}}
 
         outputs = defaultdict(list)
         num_sampled = 0
+        pbar = tqdm(total=num_samples)
         while num_sampled < num_samples:
-            latent, x_mask = self.sample_ddim(batch_size, class_id, sampling_steps, eta)
+            actual_batch_size = min(batch_size, num_samples - num_sampled)
+            latent, x_mask = self.sample_ddim(actual_batch_size, class_id, use_class_sampling, sampling_steps, eta)
 
             for strategy_name, strategy_kwargs in strategy.items():
-                output_texts = self.sample_decode(self.tokenizer, latent, x_mask, strategy_kwargs)
+                output_texts = self.sample_decode(latent, x_mask, strategy_kwargs)
                 outputs[strategy_name].extend(output_texts)
 
-            num_sampled += batch_size
+            num_sampled += actual_batch_size
+            pbar.update(actual_batch_size)
+        pbar.close()
         outputs = dict(outputs)
 
         return outputs
 
     @torch.inference_mode()
-    def sample_ddim(self, batch_size=32, class_id=None, sampling_steps=250, eta=0.0):
+    def sample_ddim(self, batch_size=32, class_id=None, use_class_sampling=False, sampling_steps=250, eta=0.0):
+        device = self.betas.device
+
         lengths = self.length_distribution.sample((batch_size,)).tolist()
+
+        if self.transformer.use_class_condition:
+            if class_id is not None:
+                assert isinstance(class_id, int) and 0 <= class_id < self.num_classes, f'Invalid class id: {class_id}'
+                class_id = torch.tensor([class_id] * batch_size, dtype=torch.long, device=device)
+            elif use_class_sampling:
+                class_id = self.class_distribution.sample((batch_size,)).long().to(device)
+            else:  # use null class
+                class_id = torch.tensor([self.num_classes] * batch_size, dtype=torch.long, device=device)
+        else:
+            if class_id is not None:
+                logger.warning('`class_id` provided but `use_class_condition` is False. Ignoring `class_id`')
+            class_id = None
 
         t = torch.linspace(-1, self.timesteps - 1, steps=sampling_steps + 1)
         t = list(reversed(t.int().tolist()))
         t_pairs = list(zip(t[:-1], t[1:]))
 
-        device = self.betas.device
         latent = torch.randn(
             (batch_size, self.seq_len, self.x_dim),
             device=device,
@@ -300,8 +328,8 @@ class DiffusionModel(nn.Module):
             if self.transformer.use_self_condition:
                 x_self_cond = preds['pred_x0']
 
-            alpha = self.alphas_cumprod(t_prev)
-            alpha_next = self.alphas_cumprod(t_next)
+            alpha = self.alphas_cumprod[t_prev]
+            alpha_next = self.alphas_cumprod[t_next]
             sigma = eta * ((1 - alpha / alpha_next) * (1 - alpha_next) / (1 - alpha)).sqrt()
 
             latent = (
