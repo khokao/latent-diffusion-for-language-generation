@@ -115,9 +115,10 @@ def preprocess_dataset(dataset, name, tokenizer, max_length, padding, truncation
         new_example = tokenizer(text, padding=padding, truncation=truncation, max_length=max_length)
         return new_example
 
+    # Remain `text` column for evaluation
     dataset = dataset.map(
         tokenization,
-        remove_columns=['text'],
+        # remove_columns=['text'],
     )
 
     return dataset

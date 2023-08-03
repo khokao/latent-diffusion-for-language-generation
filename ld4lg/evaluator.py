@@ -40,9 +40,11 @@ class TextGenerationEvaluator:
             else:  # self.mode == 'test'
                 test_reference_texts = self.test_dataset['text']
 
-        self.train_dataset[:num_samples]
-        self.val_dataset[:num_samples]
-        self.test_dataset[:num_samples]
+        if self.mode == 'val':
+            train_reference_texts = train_reference_texts[:num_samples]
+            val_reference_texts = val_reference_texts[:num_samples]
+        else:  # self.mode == 'test'
+            test_reference_texts = test_reference_texts[:num_samples]
 
         metrics = {}
 
@@ -58,7 +60,7 @@ class TextGenerationEvaluator:
 
         metrics['mauve'] = {}
         for mauve_model_id in self.mauve_model_ids:
-            metrics['mauve']['mauve_model_id'] = {}
+            metrics['mauve'][mauve_model_id] = {}
             if self.mode == 'val':
                 metrics['mauve'][mauve_model_id]['train'] = self.compute_mauve(
                     output_texts,
@@ -107,13 +109,13 @@ class TextGenerationEvaluator:
         }
         for n in n_list:
             for tokens in tokens_list:
-                ngram = ngrams(tokens, n)
+                ngram = list(ngrams(tokens, n))
                 ngram_dict[n]['unique'].update(ngram)
-                ngram_dict[n]['count'] += len(list(ngram))
+                ngram_dict[n]['count'] += len(ngram)
 
         diversity = 1
         for n in n_list:
-            unique_ngrams = len(ngram_dict[n]['unique']) / ngram_dict['count'][n]
+            unique_ngrams = len(ngram_dict[n]['unique']) / ngram_dict[n]['count']
             diversity *= unique_ngrams
 
         return diversity
@@ -170,4 +172,4 @@ class TextGenerationEvaluator:
         else:
             raise NotImplementedError(f'Model {model_id} not supported')
 
-        return results['mauve']
+        return results.mauve

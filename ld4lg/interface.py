@@ -16,6 +16,7 @@ from .diffusion import DiffusionModel
 from .models import DiffusionTransformer
 from .trainer import Trainer
 from .utils import freeze_model, get_class_distribution, get_length_distribution
+from .evaluator import TextGenerationEvaluator
 
 logger = get_logger(__name__)
 
@@ -34,6 +35,7 @@ class LD4LGInterface:
         self._init_dataset()
         self._init_distribution()
         self._init_model(pretrain_name, ckpt_path=ckpt_path)
+        self._init_evaluator()
 
     def _init_accelerator(self):
         project_config = ProjectConfiguration(
@@ -74,11 +76,13 @@ class LD4LGInterface:
         self.test_dataset = dataset['test']
 
     def _init_distribution(self):
+        logger.info('Initializing length distributions...')
         self.length_distribution = get_length_distribution(
             dataset=self.train_dataset,
             max_seq_len=self.cfg.network.transformer.seq_len,
         )
 
+        logger.info('Initializing class distributions...')
         self.class_distribution = None
         if self.cfg.dataset.use_class_condition:
             self.class_distribution = get_class_distribution(dataset=self.train_dataset)
@@ -114,6 +118,19 @@ class LD4LGInterface:
 
         self.model = model
 
+    def _init_evaluator(self):
+        if self.mode == 'train':
+            eval_mode = 'val'
+        else:
+            eval_mode = 'test'
+
+        self.evaluator = TextGenerationEvaluator(
+            train_dataset=self.train_dataset,
+            val_dataset=self.val_dataset,
+            test_dataset=self.test_dataset,
+            mode=eval_mode,
+        )
+
     def train(self):
         """Training.
         """
@@ -124,19 +141,52 @@ class LD4LGInterface:
             init_kwargs={'wandb': {'name': self.output_dir.name, 'dir': self.output_dir.resolve()}},
         )
 
-        trainer = Trainer(self.model, self.cfg, self.train_dataset, self.val_dataset, self.accelerator)
+        trainer = Trainer(
+            self.model,
+            self.cfg,
+            self.train_dataset,
+            self.val_dataset,
+            self.accelerator,
+            self.evaluator,
+        )
         trainer.train()
 
         self.accelerator.end_training()
 
-    def test(self):
+    def test(self, num_samples=1000):
         """Testing.
         """
-        raise NotImplementedError
+        self.model = self.accelerator.prepare(self.model)
+        self.model.eval()
+
+        outputs = self.model.sample(
+            num_samples=num_samples,
+            batch_size=self.cfg.generation.batch_size,
+            class_id=self.cfg.generation.class_id,
+            use_class_sampling=self.cfg.generation.use_class_sampling,
+            sampling_steps=self.cfg.generation.sampling_steps,
+            strategy=self.cfg.generation.strategy,
+            eta=self.cfg.generation.eta,
+        )
+
+        test_metrics = {}
+        for strategy_name, output_texts in outputs.items():
+            test_metrics[strategy_name] = self.evaluator(output_texts, class_id=None)
+
+        saved_dict = {
+            'metrics': test_metrics,
+            'texts': outputs,
+        }
+        output_path = self.output_dir / 'test_outputs.json'
+        with output_path.open('w') as fp:
+            json.dump(saved_dict, fp, indent=4, ensure_ascii=False)
 
     def infer(self):
         """Inference.
         """
+        self.model = self.accelerator.prepare(self.model)
+        self.model.eval()
+
         outputs = self.model.sample(
             num_samples=self.cfg.generation.num_samples,
             batch_size=self.cfg.generation.batch_size,

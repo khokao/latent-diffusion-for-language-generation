@@ -17,18 +17,19 @@ from transformers import get_scheduler
 
 from ld4lg.cfg import MyConfig
 
-from .utils import Meter
+from .utils import Meter, flatten_dict
 
 logger = get_logger(__name__)
 
 
 class Trainer:
-    def __init__(self, model, cfg: MyConfig, train_dataset, val_dataset, accelerator):
+    def __init__(self, model, cfg: MyConfig, train_dataset, val_dataset, accelerator, evaluator):
         self.model = model
         self.cfg = cfg
         self.train_dataset = train_dataset
         self.val_dataset = val_dataset
         self.accelerator = accelerator
+        self.evaluator = evaluator
 
         self.train_loader = DataLoader(self.train_dataset, **self.cfg.train.dataloader)
         self.val_loader = DataLoader(self.val_dataset, **self.cfg.train.val.dataloader)
@@ -207,11 +208,26 @@ class Trainer:
             loss = self.accelerator.gather(loss) if use_distributed else loss
             self.val_loss_meter.update(loss)
 
-        logger.info(f'Validation loss (epoch: {self.epoch + 1}/{self.cfg.train.epoch}): {self.val_loss_meter.avg}')
-        self.accelerator.log(
-            {f'{prefix}_loss': self.val_loss_meter.avg},
-            step=self.iter + 1,
+        logger.info('Sampling data for evaluation...')
+        sample_outputs = self.model.sample(
+            num_samples=self.cfg.generation.num_samples,
+            batch_size=self.cfg.generation.batch_size,
+            class_id=None,
+            use_class_sampling=self.cfg.generation.use_class_sampling,
+            sampling_steps=self.cfg.generation.sampling_steps,
+            strategy=self.cfg.generation.strategy,
+            eta=self.cfg.generation.eta,
         )
+
+        val_metrics = {}
+        val_metrics[f'{prefix}_loss'] = self.val_loss_meter.avg
+        for strategy_name, output_texts in sample_outputs.items():
+            metrics = self.evaluator(output_texts, class_id=None)
+            val_metrics[f'{prefix}_{strategy_name}'] = metrics
+        val_metrics = flatten_dict(val_metrics)
+
+        logger.info(f'Validation Results (epoch: {self.epoch + 1}/{self.cfg.train.epoch})\n{val_metrics}')
+        self.accelerator.log(val_metrics, step=self.iter + 1)
 
         if use_distributed:
             self.accelerator.wait_for_everyone()
