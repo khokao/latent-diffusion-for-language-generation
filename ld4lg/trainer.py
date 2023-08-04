@@ -152,8 +152,6 @@ class Trainer:
         logger.info(f'---> Start train epoch {self.epoch + 1}')
 
     def after_epoch(self):
-        self.scheduler.step()
-
         epoch_elapsed_time = time() - self.epoch_start_time
         logger.info(f'Epoch {self.epoch + 1} done. ({epoch_elapsed_time:.1f} sec)')
 
@@ -173,6 +171,8 @@ class Trainer:
         pass
 
     def after_iter(self):
+        self.scheduler.step()
+
         if self.cfg.train.ema and self.accelerator.is_main_process:
             self.ema.update()
 
