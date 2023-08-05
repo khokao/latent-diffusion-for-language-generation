@@ -6,6 +6,7 @@ Link:
 """
 from pathlib import Path
 from time import time
+import math
 
 import torch
 from accelerate.logging import get_logger
@@ -76,14 +77,15 @@ class Trainer:
         return optimizer
 
     def get_scheduler(self, optimizer):
-        total_steps = self.cfg.train.epoch * self.accelerator.num_processes
+        num_update_steps_per_epoch = math.ceil(len(self.train_loader) / self.accelerator.gradient_accumulation_steps)
+        max_train_steps = math.ceil(self.cfg.train.epoch * num_update_steps_per_epoch)
 
         scheduler_cfg = self.cfg.train.scheduler
         scheduler = get_scheduler(
             name=scheduler_cfg.name,
             optimizer=optimizer,
             num_warmup_steps=scheduler_cfg.num_warmup_steps,
-            num_training_steps=total_steps,
+            num_training_steps=max_train_steps,
         )
 
         logger.info(f'Use `{scheduler_cfg.name}` scheduler')
@@ -134,6 +136,18 @@ class Trainer:
         self.accelerator.wait_for_everyone()
 
     def before_train(self):
+        num_update_steps_per_epoch = math.ceil(len(self.train_loader) / self.accelerator.gradient_accumulation_steps)
+        max_train_steps = math.ceil(self.cfg.train.epoch * num_update_steps_per_epoch)
+        total_batch_size = self.cfg.train.dataloader.batch_size * self.accelerator.num_processes * self.accelerator.gradient_accumulation_steps
+        logger.info('***** Training Setting *****')
+        logger.info(f' Num examples = {len(self.train_dataset)}')
+        logger.info(f' Num Epochs = {self.cfg.train.epoch}')
+        logger.info(f' Instantaneous batch size per GPU = {self.cfg.train.dataloader.batch_size}')
+        logger.info(f' Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}')
+        logger.info(f' Gradient Accumulation steps = {self.accelerator.gradient_accumulation_steps}')
+        logger.info(f' Total optimization steps = {max_train_steps}')
+        logger.info('****************************')
+
         self.iter = 0
         self.train_loss_meter = Meter()
         self.val_loss_meter = Meter()
