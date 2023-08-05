@@ -57,11 +57,11 @@ class Trainer:
         )
 
     def get_optimizer(self):
-        # Exclude affine params in norms and bias terms.
+        no_decay = ['bias', 'LayerNorm.weight']
         without_weight_decay = []
         with_weight_decay = []
-        for param in self.model.parameters():
-            if param.ndim < 2:
+        for name, param in self.model.named_parameters():
+            if any(nd in name for nd in no_decay):
                 without_weight_decay.append(param)
             else:
                 with_weight_decay.append(param)
