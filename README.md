@@ -54,7 +54,7 @@ The AG News Topic Classification dataset consists of news articles across four t
 <details markdown="1">
 
 <summary>Additional Customization</summary>
-Other arguments can be changed at runtime. See [here](./ld4lg/cfg/) for more information on settings.
+Other arguments can be changed at runtime. See [here](ld4lg/cfg) for more information on settings.
 
 For example, the following arguments can be specified.
 
@@ -75,7 +75,7 @@ accelerate launch scripts/test.py infer.output_dir=outputs/e2e
 <details markdown="1">
 
 <summary>Additional Customization</summary>
-Other arguments can be changed at runtime. See [here](./ld4lg/cfg/) for more information on settings.
+Other arguments can be changed at runtime. See [here](ld4lg/cfg) for more information on settings.
 
 For example, the following arguments can be specified.
 
