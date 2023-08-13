@@ -4,9 +4,9 @@ Link:
     - [Trainer] https://github.com/Megvii-BaseDetection/YOLOX/
       blob/a5bb5ab12a61b8a25a5c3c11ae6f06397eb9b296/yolox/core/trainer.py#L36-L382
 """
+import math
 from pathlib import Path
 from time import time
-import math
 
 import torch
 from accelerate.logging import get_logger
@@ -138,7 +138,11 @@ class Trainer:
     def before_train(self):
         num_update_steps_per_epoch = math.ceil(len(self.train_loader) / self.accelerator.gradient_accumulation_steps)
         max_train_steps = math.ceil(self.cfg.train.epoch * num_update_steps_per_epoch)
-        total_batch_size = self.cfg.train.dataloader.batch_size * self.accelerator.num_processes * self.accelerator.gradient_accumulation_steps
+        total_batch_size = (
+            self.cfg.train.dataloader.batch_size
+            * self.accelerator.num_processes
+            * self.accelerator.gradient_accumulation_steps
+        )
         logger.info('***** Training Setting *****')
         logger.info(f' Num examples = {len(self.train_dataset)}')
         logger.info(f' Num Epochs = {self.cfg.train.epoch}')

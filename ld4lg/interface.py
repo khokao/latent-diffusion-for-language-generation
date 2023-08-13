@@ -13,10 +13,10 @@ from ld4lg.cfg import MyConfig
 
 from .dataset import get_dataset
 from .diffusion import DiffusionModel
+from .evaluator import TextGenerationEvaluator
 from .models import DiffusionTransformer
 from .trainer import Trainer
 from .utils import freeze_model, get_class_distribution, get_length_distribution
-from .evaluator import TextGenerationEvaluator
 
 logger = get_logger(__name__)
 
@@ -173,11 +173,13 @@ class LD4LGInterface:
         for strategy_name, output_texts in outputs.items():
             test_metrics[strategy_name] = self.evaluator(output_texts, class_id=None)
 
+        used_ckpt_path = Path(self.cfg.infer.ckpt_path)
         saved_dict = {
+            'ckpt': str(used_ckpt_path),
             'metrics': test_metrics,
             'texts': outputs,
         }
-        output_path = self.output_dir / 'test_outputs.json'
+        output_path = self.output_dir / f'test_outputs_{str(used_ckpt_path.with_suffix("")).replace("/", "_")}_.json'
         with output_path.open('w') as fp:
             json.dump(saved_dict, fp, indent=4, ensure_ascii=False)
 

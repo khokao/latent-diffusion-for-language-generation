@@ -46,10 +46,8 @@ def preprocess_dataset(dataset, name, tokenizer, max_length, padding, truncation
         def preprocess_e2e(example):
             meta, text = example['text'].split('||')
             text = PreTrainedTokenizerBase.clean_up_tokenization(text.strip())
-            label = meta.split('|')
             new_example = {
                 'text': text,
-                'label': label,
             }
             return new_example
 
