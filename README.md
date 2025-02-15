@@ -6,6 +6,9 @@ Unofficial implementation of Latent Diffusion for Language Generation (LD4LG)
 
 This is an unofficial implementation of [LD4LG](https://arxiv.org/abs/2212.09462). For the official implementation, please refer [here](https://github.com/justinlovelace/latent-diffusion-for-language).
 
+> [!NOTE]
+> This implementation is based on the initially released version of LD4LG and differs from the latest version.
+
 # :hammer_and_wrench: Setup
 If you are using [poetry](https://github.com/python-poetry/poetry), run the following command to install required dependencies.
 ```bash
